@@ -271,10 +271,10 @@ class PowerformerBlock(torch.nn.Module):
             butterworth_tc=cfg.attn_butterworth_tc,
             butterworth_order=cfg.attn_butterworth_order,
         )
-        self.attn = SDPSelfAttention(
-            d_model=cfg.d_model,
-            dropout_p=self.cfg.dropout_rate,
-        )
+        # self.attn = SDPSelfAttention(
+        #     d_model=cfg.d_model,
+        #     dropout_p=self.cfg.dropout_rate,
+        # )
         self.ff = PowerformerLayerFF(cfg)
 
     def forward(self, hidden_states: torch.Tensor):
