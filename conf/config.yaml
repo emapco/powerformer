@@ -1,0 +1,81 @@
+defaults:
+  - trainer
+  - _self_
+
+seed: 42
+checkpoint_path: null
+resume_from_checkpoint: null
+do_hyperoptim: false
+early_stopping_patience: 5
+
+dataset:
+  sample_size: null # select the first sample_size samples from the dataset
+  train_path: data/train.parquet
+  eval_path: data/eval.parquet
+  date_col: timestamp
+  # select specific features to use -  if null or omitted, use all features
+  feature_cols:
+    - MT_001
+    - MT_002
+    - MT_003
+
+model:
+  d_model: 128
+  d_ff: 256
+  num_layers: 3
+  num_heads: 4
+  dropout_rate: .3
+  linear_dropout_rate: .3
+  feed_forward_proj: relu
+  layer_norm_epsilon: 1e-5
+  context_len: 512
+  prediction_len: 96
+  patch_len: 16
+  patch_stride: 8
+  attn_locality_func: similarity_power_law # similarity_power_law | weighted_power_law | butterworth_filter (not advised - included for completeness)
+  attn_alpha: 1.0 # locality function's power parameter
+  attn_butterworth_tc: 1.0 # butterworth filter time cutoff (not advised - included for completeness)
+  # 2nd order butterworth filter outperformed 1st order in the paper
+  attn_butterworth_order: 2 # butterworth filter order (not advised - included for completeness)
+
+hyperopt:
+  n_trials: 128
+  persistence: false
+  patience: 2
+  load_if_exists: true
+  storage_url: postgresql://postgres:password@127.0.0.1:5432/postgres
+  storage_heartbeat_interval: 15
+  storage_engine_kwargs:
+    pool_size: 5
+    connect_args:
+      keepalives: 1
+  hp_space:
+    model:
+      - name: num_layers
+        type: int
+        low: 1
+        high: 6
+      - name: num_heads
+        type: categorical
+        choices: [2, 4, 8, 16]
+      - name: dropout_rate
+        type: float
+        low: 0.0
+        high: 0.3
+        step: 0.05
+      - name: linear_dropout_rate
+        type: float
+        low: 0.0
+        high: 0.3
+        step: 0.05
+      - name: feed_forward_proj
+        type: categorical
+        choices: ["gelu", "gelu_new", "laplace", "leaky_relu", "relu", "silu"]
+      - name: attn_locality_func
+        type: categorical
+        choices: ["similarity_power_law", "weighted_power_law"]
+      - name: attn_alpha
+        type: float
+        low: 0.0
+        high: 2.0
+        step: 0.1
