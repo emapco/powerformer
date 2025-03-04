@@ -3,7 +3,7 @@ torch>=2.5.0
 transformers[torch]>=4.49.0
 einops>=0.8.1
 pyarrow>=19.0.1
-psycopg2>=2.9.10
+psycopg2-binary>=2.9.10
 datasets>=3.3.2
 hydra-trainer>=0.1.2
 optuna

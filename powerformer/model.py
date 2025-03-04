@@ -23,8 +23,8 @@ logger = logging.getLogger(__file__)
 
 # A.2 Code to Calculate the Gain
 def butterworth_filter(scale, order, times):
-    b, a = scipy.signal.butter(order, 0.8, "lowpass", analog=False)
-    t, decay = scipy.signal.freqz(b, a)
+    b, a = scipy.signal.butter(order, 0.8, "lowpass", analog=False)  # type: ignore
+    t, decay = scipy.signal.freqz(b, a)  # type: ignore
     t = scale * t / 2
     dc = 5 * np.log(np.abs(decay))
     decay_interp = scipy.interpolate.interp1d(t, dc)
@@ -149,7 +149,7 @@ class SDPSelfAttention(torch.nn.Module):
 
 # PatchTST patching mechanism
 # https://github.com/yuqinie98/PatchTST/blob/main/PatchTST_self_supervised/src/callback/patch_mask.py#L8
-class Patch(torch.nn.Module):
+class PowerformerPatch(torch.nn.Module):
     def __init__(self, seq_len, patch_size, stride):
         super().__init__()
         self.seq_len = seq_len
@@ -171,6 +171,8 @@ class Patch(torch.nn.Module):
         return x
 
 
+# Chronos-bolt instance norm
+# https://github.com/amazon-science/chronos-forecasting/blob/main/src/chronos/chronos_bolt.py#L72
 class PowerformerInstanceNorm(torch.nn.Module):
     """
     Apply instance normalization along the last dimension (with NaN‐aware mean and std).
@@ -186,15 +188,14 @@ class PowerformerInstanceNorm(torch.nn.Module):
         mean_std: tuple[torch.Tensor, torch.Tensor] | None = None,
     ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
         if mean_std is None:
-            mean = torch.nan_to_num(torch.nanmean(x, dim=-1, keepdim=True), nan=0.0).to(
-                x.device
-            )
+            mean = torch.nan_to_num(torch.nanmean(x, dim=-1, keepdim=True), nan=0.0)
             std = torch.nan_to_num(
-                (x - mean).square().nanmean(dim=-1, keepdim=True).sqrt(), nan=1.0
+                torch.nanmean((x - mean).square(), dim=-1, keepdim=True).sqrt(), nan=1.0
             )
             std = torch.where(std == 0, torch.abs(mean) + self.eps, std)
         else:
             mean, std = mean_std
+
         return (x - mean) / std, (mean, std)
 
     @staticmethod
@@ -266,10 +267,10 @@ class PowerformerBlock(torch.nn.Module):
         self.attn = WeightedCausalMultiheadAttention(
             d_model=cfg.d_model,
             num_heads=cfg.num_heads,
-            locality_func=cfg.attn_locality_func,
-            alpha=cfg.attn_alpha,
-            butterworth_tc=cfg.attn_butterworth_tc,
-            butterworth_order=cfg.attn_butterworth_order,
+            locality_func=cfg.locality_func,
+            alpha=cfg.alpha,
+            butterworth_tc=cfg.butterworth_tc,
+            butterworth_order=cfg.butterworth_order,
         )
         # self.attn = SDPSelfAttention(
         #     d_model=cfg.d_model,
@@ -293,13 +294,15 @@ class Powerformer(transformers.modeling_utils.PreTrainedModel):
         cfg: PowerformerConfig,
     ):
         super().__init__(cfg)
-        self.config = cfg
-        self.patch = Patch(
+        self.cfg = cfg
+        self.patch = PowerformerPatch(
             seq_len=cfg.context_len,
             patch_size=cfg.patch_len,
             stride=cfg.patch_stride,
         )
+        self.proj_embed = torch.nn.Linear(cfg.patch_len, cfg.d_model)
         self.instance_norm = PowerformerInstanceNorm(eps=cfg.layer_norm_epsilon)
+
         self.transformer_encoder = torch.nn.ModuleList(
             [PowerformerBlock(cfg) for _ in range(cfg.num_layers)]
         )
@@ -308,31 +311,22 @@ class Powerformer(transformers.modeling_utils.PreTrainedModel):
             prediction_len=cfg.prediction_len,
             dropout_p=cfg.linear_dropout_rate,
         )
-        self.proj_embed = torch.nn.Linear(self.patch.patch_size, cfg.d_model)
         self.init_weights()
 
     def _init_weights(self, module):
         """Initialize the weights"""
-        factor = (
-            self.config.initializer_factor
-        )  # Used for testing weights initialization
-        d_model = self.config.d_model
-        n_heads = self.config.num_heads
+        factor = self.cfg.initializer_factor  # Used for testing weights initialization
+        d_model = self.cfg.d_model
+        d_ff = self.cfg.d_ff
         if isinstance(module, PowerformerPredictionHead):
-            module.pred_proj.weight.data.normal_(
-                mean=0.0, std=factor * (self.config.d_model**-0.5)
-            )
+            module.pred_proj.weight.data.normal_(mean=0.0, std=factor * (d_model**-0.5))
             if hasattr(module.pred_proj, "bias") and module.pred_proj.bias is not None:
                 module.pred_proj.bias.data.zero_()
         elif isinstance(module, PowerformerDenseActDense):
-            module.wi.weight.data.normal_(
-                mean=0.0, std=factor * (self.config.d_model**-0.5)
-            )
+            module.wi.weight.data.normal_(mean=0.0, std=factor * (d_model**-0.5))
             if hasattr(module.wi, "bias") and module.wi.bias is not None:
                 module.wi.bias.data.zero_()
-            module.wo.weight.data.normal_(
-                mean=0.0, std=factor * (self.config.d_ff**-0.5)
-            )
+            module.wo.weight.data.normal_(mean=0.0, std=factor * (d_ff**-0.5))
             if hasattr(module.wo, "bias") and module.wo.bias is not None:
                 module.wo.bias.data.zero_()
         elif isinstance(module, WeightedCausalMultiheadAttention | SDPSelfAttention):
@@ -345,14 +339,13 @@ class Powerformer(transformers.modeling_utils.PreTrainedModel):
             module.v.weight.data.normal_(mean=0.0, std=factor * (d_model**-0.5))
             if hasattr(module.v, "bias") and module.v.bias is not None:
                 module.v.bias.data.zero_()
-            module.o.weight.data.normal_(mean=0.0, std=factor * (n_heads**-0.5))
+            module.o.weight.data.normal_(mean=0.0, std=factor * (d_model**-0.5))
             if hasattr(module.o, "bias") and module.o.bias is not None:
                 module.o.bias.data.zero_()
 
     def forward(
         self,
         context: torch.Tensor,
-        mask: torch.Tensor | None = None,
         labels: torch.Tensor | None = None,
     ) -> PowerformerModelOutput:
         # C.3 excerpt: The input data comes in with D variates and shape [B, D, Tseq],
@@ -374,9 +367,11 @@ class Powerformer(transformers.modeling_utils.PreTrainedModel):
         logits: torch.Tensor = self.prediction_head(
             rearrange(encoder_output, "B P N -> B (P N)")
         )
+        # C.3 excerpt: ...produces the univariate forecasts of shape [B × D, Tpred].
+        # Finally, these univariate forecasts are renormalized and reshaped into
+        # the multivariate input structure [B, D, Tpred] and returned to the user.
         logits = rearrange(logits, "(B D) T -> B D T", B=B, D=DVAR)
         logits = self.instance_norm.inverse(logits, mean_std)
-        # logits, _ = self.instance_norm(logits)
 
         loss = None
         if labels is not None:

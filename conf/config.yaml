@@ -32,14 +32,14 @@ model:
   prediction_len: 96
   patch_len: 16
   patch_stride: 8
-  attn_locality_func: similarity_power_law # similarity_power_law | weighted_power_law | butterworth_filter (not advised - included for completeness)
-  attn_alpha: 1.0 # locality function's power parameter
-  attn_butterworth_tc: 1.0 # butterworth filter time cutoff (not advised - included for completeness)
+  locality_func: similarity_power_law # similarity_power_law | weighted_power_law | butterworth_filter (not advised - included for completeness)
+  alpha: 1.0 # locality function's power parameter
+  butterworth_tc: 1.0 # butterworth filter time cutoff (not advised - included for completeness)
   # 2nd order butterworth filter outperformed 1st order in the paper
-  attn_butterworth_order: 2 # butterworth filter order (not advised - included for completeness)
+  butterworth_order: 2 # butterworth filter order (not advised - included for completeness)
 
 hyperopt:
-  n_trials: 128
+  n_trials: 256
   persistence: false
   patience: 2
   load_if_exists: true
@@ -62,19 +62,19 @@ hyperopt:
         type: float
         low: 0.0
         high: 0.3
-        step: 0.05
+        step: 0.01
       - name: linear_dropout_rate
         type: float
         low: 0.0
         high: 0.3
-        step: 0.05
+        step: 0.01
       - name: feed_forward_proj
         type: categorical
         choices: ["gelu", "gelu_new", "laplace", "leaky_relu", "relu", "silu"]
-      - name: attn_locality_func
+      - name: locality_func
         type: categorical
         choices: ["similarity_power_law", "weighted_power_law"]
-      - name: attn_alpha
+      - name: alpha
         type: float
         low: 0.0
         high: 2.0

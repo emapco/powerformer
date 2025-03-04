@@ -2,8 +2,8 @@ import pytest
 import torch
 
 from .model import (
-    Patch,
     PowerformerInstanceNorm,
+    PowerformerPatch,
     WeightedCausalMultiheadAttention,
 )
 
@@ -65,7 +65,7 @@ def test_patch(feat_dim, patch_size, stride):
     patch_size = patch_size
     stride = stride
 
-    patcher = Patch(
+    patcher = PowerformerPatch(
         seq_len=seq_length,
         patch_size=patch_size,
         stride=stride,
@@ -86,15 +86,19 @@ def test_instance_norm(rank):
 
     norm = PowerformerInstanceNorm()
     x = torch.randn(*rank_dims)
-    x_norm, loc_scale = norm(x)
-    inverse_x = norm.inverse(x_norm, loc_scale)
+    x_norm, mean_std = norm(x)
+    inverse_x = norm.inverse(x_norm, mean_std)
+
+    expected_shape = list(rank_dims)
+    expected_shape[-1] = 1
+    expected_shape = tuple(expected_shape)
 
     assert torch.allclose(x, inverse_x)
     assert x_norm.shape == x.shape
-    assert isinstance(loc_scale, tuple)
-    assert len(loc_scale) == 2
-    assert loc_scale[0].shape == tuple(rank_dims)
-    assert loc_scale[1].shape == tuple(rank_dims)
+    assert isinstance(mean_std, tuple)
+    assert len(mean_std) == 2
+    assert mean_std[0].shape == expected_shape
+    assert mean_std[1].shape == expected_shape
 
 
 @pytest.mark.parametrize("rank", [2, 3])  # 1d version only support rank 2 and 3 tensors

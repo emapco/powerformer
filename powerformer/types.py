@@ -22,12 +22,12 @@ class PowerformerConfig(transformers.PretrainedConfig):
     prediction_len: int = 96
     patch_len: int = 16
     patch_stride: int = 8
-    attn_locality_func: Literal[
+    locality_func: Literal[
         "similarity_power_law", "weighted_power_law", "butterworth_filter"
     ] = "similarity_power_law"
-    attn_alpha: float = 1.0
-    attn_butterworth_tc: float = 1.0
-    attn_butterworth_order: int = 2
+    alpha: float = 1.0
+    butterworth_tc: float = 1.0
+    butterworth_order: int = 2
     # PretrainedConfig required args
     pruned_heads = False
     initializer_factor = 0.2
